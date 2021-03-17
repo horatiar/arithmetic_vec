@@ -1,0 +1,17 @@
+[package]
+name = "arithmetic_vec"
+version = "0.1.0"
+authors = ["Kevin Finley <github@javavisualizer.com>"]
+edition = "2018"
+description = "A complete tree based on an arithmetic series."
+repository = "https://github.com/horatiar/arithmetic_vec"
+license = "MITNFA"
+keywords = ["binomial", "arithmetic", "series", "tree"]
+categories = ["data-structures", "mathematics", "simulation"]
+
+[features]
+default = []
+exact_size_is_empty = []
+
+[dependencies]
+serde = { version = "1.0", optional = true }
