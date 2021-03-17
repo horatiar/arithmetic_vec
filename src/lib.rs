@@ -92,44 +92,28 @@ pub fn arithmetic_idx(level: ArithmeticLevel, offset: usize, skip: usize) -> usi
 }
 
 #[derive(Clone)] #[cfg_attr(feature="serde", derive(Serialize,Deserialize))]
-pub struct ArithmeticVec<'a, V, F>
-where
-	V: 'a,
-	F: Fn() -> V
-{
+pub struct ArithmeticVec<'a, V:'a+Default> {
 	vec: Vec<V>,
 	levels: usize,
-	maker: F,
 	_phantom: PhantomData<&'a mut Vec<V>>,
 }
 
-impl<'a, V, F> ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
+impl<'a, V:'a+Default> ArithmeticVec<'a, V> {
 	/// ```
 	/// # use arithmetic_vec::*;
-	/// assert!(ArithmeticVec::new(&i32::default).level_count() == 0); 
-	/// ```
-	pub fn new(maker: F) -> Self {
-		Self::with_capacity(10, maker)
-	}
-	/// ```
-	/// # use arithmetic_vec::*;
-	/// let mut av = ArithmeticVec::with_capacity(0, || 42i32);
+	/// let mut av = ArithmeticVec::with_capacity(0);
 	/// assert!(av.level_count() == 0);
 	/// av[3][0] = 12;
 	/// assert!(av.level_count() == 4);
-	/// assert!(av[(0,0)] == 42);
-	/// assert!(av[(2,2)] == 42);
-	/// assert!(av[(3,3)] == 42);
+	/// assert!(av[(0,0)] == 0);
+	/// assert!(av[(2,2)] == 0);
+	/// assert!(av[(3,3)] == 0);
 	/// ```
-	pub fn with_capacity(cap: usize, maker: F) -> Self {
+	pub fn with_capacity(cap: usize) -> Self {
 		let capacity = arithmetic_idx(Raw(cap),0,0);
 		Self {
 			vec: Vec::with_capacity(capacity),
 			levels: 0,
-			maker,
 			_phantom: PhantomData
 		}
 	}
@@ -160,10 +144,7 @@ where
 			let cur_items = self.vec.len();
 			let req_items = arithmetic_idx(Raw(levels+1),0,0);
 			let len = req_items - cur_items;
-			self.vec.reserve(len);
-			for _ in 0..len {
-				self.vec.push((self.maker)()); // clippy::same_item_push is wrong
-			}
+			self.vec.resize_with(len, V::default);
 			debug_assert!(self.vec.len() == cur_items + len);
 			debug_assert!(self.vec.len() == req_items);
 			self.levels = levels+1;
@@ -171,24 +152,28 @@ where
 	}
 }
 
-impl<'a, V, F> Debug for ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
+impl<'a, V:'a+Default> Default for ArithmeticVec<'a, V> {
+	/// ```
+	/// # use arithmetic_vec::*;
+	/// assert!(ArithmeticVec::<i32>::default().level_count() == 0); 
+	/// ```
+	fn default() -> Self {
+		Self::with_capacity(10)
+	}
+}
+
+impl<'a, V:'a+Default> Debug for ArithmeticVec<'a, V> {
 	fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
 		todo!()
 	}
 }
 
-impl<'a, V, F> Index<usize> for ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
+impl<'a, V:'a+Default> Index<usize> for ArithmeticVec<'a, V> {
 	type Output = [V];
 	
 	/// ```
 	/// # use arithmetic_vec::*;
-	/// let mut av = ArithmeticVec::new(||0);
+	/// let mut av = ArithmeticVec::default();
 	/// av[(2,1)] = 42;
 	/// assert!(av[(2,1)] == 42);
 	/// assert!(av[2] == [0,42,0]);
@@ -200,13 +185,10 @@ where
 	}
 }
 
-impl<'a, V, F> IndexMut<usize> for ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
+impl<'a, V:'a+Default> IndexMut<usize> for ArithmeticVec<'a, V> {
 	/// ```
 	/// # use arithmetic_vec::*;
-	/// let mut av = ArithmeticVec::new(||0);
+	/// let mut av = ArithmeticVec::default();
 	/// av[2][1] = 42;
 	/// assert!(av[(2,1)] == 42);
 	/// assert!(av[2] == [0,42,0]);
@@ -220,10 +202,7 @@ where
 	}
 }
 
-impl<'a, V, F> Index<(usize,usize)> for ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
+impl<'a, V:'a+Default> Index<(usize,usize)> for ArithmeticVec<'a, V> {
 	type Output = V;
 	#[inline]
 	fn index(&self, (level,idx): (usize,usize)) -> &V {
@@ -231,10 +210,7 @@ where
 	}
 }
 
-impl<'a, V, F> IndexMut<(usize,usize)> for ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
+impl<'a, V:'a+Default> IndexMut<(usize,usize)> for ArithmeticVec<'a, V> {
 	#[inline]
 	fn index_mut(&mut self, (level,idx): (usize,usize)) -> &mut V {
 		self.reserve(level);
@@ -242,44 +218,35 @@ where
 	}
 }
 
-impl<'a, V, F> AsRef<ArithmeticVec<'a, V, F>> for ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
-	fn as_ref(&self) -> &ArithmeticVec<'a, V, F> {
+impl<'a, V:'a+Default> AsRef<ArithmeticVec<'a, V>> for ArithmeticVec<'a, V> {
+	fn as_ref(&self) -> &ArithmeticVec<'a, V> {
 		self
 	}
 }
 
-impl<'a, V, F> AsMut<ArithmeticVec<'a, V, F>> for ArithmeticVec<'a, V, F>
-where
-	F: Fn() -> V
-{
-	fn as_mut(&mut self) -> &mut ArithmeticVec<'a, V, F> {
+impl<'a, V:'a+Default> AsMut<ArithmeticVec<'a, V>> for ArithmeticVec<'a, V> {
+	fn as_mut(&mut self) -> &mut ArithmeticVec<'a, V> {
 		self
 	}
 }
 
-impl<'a, 'b, A, B, F, G> PartialEq<ArithmeticVec<'b, B, G>> for ArithmeticVec<'a, A, F>
+impl<'a, 'b, A, B> PartialEq<ArithmeticVec<'b, B>> for ArithmeticVec<'a, A>
 where
-	A: 'a + PartialEq<B>,
-	B: 'b,
-	F: Fn() -> A,
-	G: Fn() -> B
+	A: 'a + Default + PartialEq<B>,
+	B: 'b + Default
 {
-	fn eq(&self, rhs: &ArithmeticVec<B, G>) -> bool {
+	fn eq(&self, rhs: &ArithmeticVec<B>) -> bool {
 		self.vec.eq(&rhs.vec)
 	}
 }
 
-impl<'a, V: 'a+Eq, F: Fn() -> V> Eq for ArithmeticVec<'a, V, F> {}
+impl<'a, V:'a+Default+Eq> Eq for ArithmeticVec<'a, V> {}
 
-impl<'a, V, F> PartialOrd<ArithmeticVec<'a, V, F>> for ArithmeticVec<'a, V, F>
+impl<'a, V:'a+Default> PartialOrd<ArithmeticVec<'a, V>> for ArithmeticVec<'a, V>
 where
-	V: 'a + PartialOrd<V>,
-	F: Fn() -> V
+	V: 'a + Default + PartialOrd<V>
 {
-	fn partial_cmp(&self, rhs: &ArithmeticVec<V, F>) -> Option<Ordering> {
+	fn partial_cmp(&self, rhs: &ArithmeticVec<V>) -> Option<Ordering> {
 		match self.vec.len().cmp(&rhs.vec.len()) {
 			Equal => self.vec.partial_cmp(&rhs.vec),
 			Less => match &self.vec[..].partial_cmp(&rhs.vec[0..self.vec.len()]) {
@@ -296,12 +263,11 @@ where
 	}
 }
 
-impl<'a, V, F> Ord for ArithmeticVec<'a, V, F>
+impl<'a, V> Ord for ArithmeticVec<'a, V>
 where
-	V: 'a + Ord,
-	F: Fn() -> V
+	V: 'a + Default + Ord
 {
-	fn cmp(&self, rhs: &ArithmeticVec<V, F>) -> Ordering {
+	fn cmp(&self, rhs: &ArithmeticVec<V>) -> Ordering {
 		match self.vec.len().cmp(&rhs.vec.len()) {
 			Equal => self.vec.cmp(&rhs.vec),
 			Less => match &self.vec[..].cmp(&rhs.vec[0..self.vec.len()]) {
@@ -316,10 +282,9 @@ where
 	}
 }
 
-impl<'a, V, F> Hash for ArithmeticVec<'a, V, F>
+impl<'a, V> Hash for ArithmeticVec<'a, V>
 where
-	V: 'a + Hash,
-	F: Fn() -> V
+	V: 'a + Default + Hash
 {
 	fn hash<H: Hasher>(&self, state: &mut H) {
 		Hash::hash(&self.vec, state);
@@ -327,15 +292,15 @@ where
 	}
 }
 
-pub struct AVecIter<'a, V: 'a> {
+pub struct AVecIter<'a, V:'a+Default> {
 	cur_ptr: NonNull<V>,
 	cur: usize,
 	len: usize,
 	_phantom: PhantomData<&'a V>,
 }
 
-impl<'a, V: 'a> AVecIter<'a, V> {
-	pub fn new<F: Fn() -> V>(source: &ArithmeticVec<'a, V, F>) -> Self {
+impl<'a, V:'a+Default> AVecIter<'a, V> {
+	pub fn new(source: &ArithmeticVec<'a, V>) -> Self {
 		AVecIter {
 			cur_ptr: NonNull::new(source.vec.as_ptr() as *mut V).unwrap(),
 			cur: 0,
@@ -345,7 +310,7 @@ impl<'a, V: 'a> AVecIter<'a, V> {
 	}
 }
 
-impl<'a, V: 'a> Iterator for AVecIter<'a, V> {
+impl<'a, V:'a+Default> Iterator for AVecIter<'a, V> {
 	type Item = &'a[V];
 	
 	#[inline]
@@ -388,8 +353,8 @@ pub struct AVecMutIter<'a, V: 'a> {
 	_phantom: PhantomData<&'a V>,
 }
 
-impl<'a, V: 'a> AVecMutIter<'a, V> {
-	pub fn new<F: Fn() -> V>(source: &mut ArithmeticVec<'a, V, F>) -> Self {
+impl<'a, V:'a+Default> AVecMutIter<'a, V> {
+	pub fn new(source: &mut ArithmeticVec<'a, V>) -> Self {
 		AVecMutIter {
 			cur_ptr: NonNull::new(source.vec.as_mut_ptr()).unwrap(),
 			cur: 0,
@@ -399,7 +364,7 @@ impl<'a, V: 'a> AVecMutIter<'a, V> {
 	}
 }
 
-impl<'a, V: 'a> Iterator for AVecMutIter<'a, V> {
+impl<'a, V:'a+Default> Iterator for AVecMutIter<'a, V> {
 	type Item = &'a mut[V];
 	
 	#[inline]
@@ -428,7 +393,7 @@ impl<'a, V: 'a> Iterator for AVecMutIter<'a, V> {
 }
 
 #[cfg(feature="exact_size_is_empty")]
-impl<'a, V: 'a> ExactSizeIterator for AVecMutIter<'a, V> {
+impl<'a, V:'a+Default> ExactSizeIterator for AVecMutIter<'a, V> {
 	#[inline]
 	fn is_empty(&self) -> bool {
 		self.len == 0
