@@ -1,5 +1,3 @@
-#![feature(nonnull_slice_from_raw_parts)]
-
 use core::{
 	cmp::{
 		Ordering, Ordering::*,
@@ -19,27 +17,13 @@ use core::{
 	ptr::{
 		NonNull,
 	},
-};
-
-pub use self::ArithmeticLevel::{
-	Raw, 
-	Virt,
+    slice,
 };
 
 #[cfg(feature="serde")]
 use serde::{Deserialize, Serialize};
 
-#[derive(Copy,Clone,Debug,Eq,Hash,Ord,PartialOrd,PartialEq)] #[cfg_attr(feature="serde", derive(Serialize,Deserialize))]
-pub enum ArithmeticLevel {
-	Raw(usize),
-	Virt(usize),
-}
-
-impl From<usize> for ArithmeticLevel {
-	fn from(raw_level: usize) -> Self {
-		Raw(raw_level)
-	}
-}
+type ArithmeticLevel = usize;
 
 /// Calculate the index of the starting level of a
 /// complete arithmetic tree; i.e., a complete tree
@@ -59,35 +43,30 @@ impl From<usize> for ArithmeticLevel {
 /// 
 /// ```
 /// # use arithmetic_vec::*;
-/// assert_eq!(0, arithmetic_idx(Raw(0),0,0));
-/// assert_eq!(1, arithmetic_idx(Raw(1),0,0));
-/// assert_eq!(3, arithmetic_idx(Raw(2),0,0));
-/// assert_eq!(6, arithmetic_idx(Raw(3),0,0));
-/// assert_eq!(15, arithmetic_idx(Raw(5),0,0));
+/// assert_eq!(0, arithmetic_idx(0,0,0));
+/// assert_eq!(1, arithmetic_idx(1,0,0));
+/// assert_eq!(3, arithmetic_idx(2,0,0));
+/// assert_eq!(6, arithmetic_idx(3,0,0));
+/// assert_eq!(15, arithmetic_idx(5,0,0));
 /// 
-/// assert_eq!(0, arithmetic_idx(Raw(0),0,1));
-/// assert_eq!(1, arithmetic_idx(Raw(1),0,1));
-/// assert_eq!(4, arithmetic_idx(Raw(2),0,1));
-/// assert_eq!(9, arithmetic_idx(Raw(3),0,1));
-/// assert_eq!(25, arithmetic_idx(Raw(5),0,1));
+/// assert_eq!(0, arithmetic_idx(0,0,1));
+/// assert_eq!(1, arithmetic_idx(1,0,1));
+/// assert_eq!(4, arithmetic_idx(2,0,1));
+/// assert_eq!(9, arithmetic_idx(3,0,1));
+/// assert_eq!(25, arithmetic_idx(5,0,1));
 /// 
-/// assert_eq!(5, arithmetic_idx(Raw(2),0,2));
-/// assert_eq!(12, arithmetic_idx(Raw(3),0,2));
-/// 
-/// assert_eq!(0, arithmetic_idx(Virt(0),0,2));
-/// assert_eq!(arithmetic_idx(Raw(4),0,2), arithmetic_idx(Virt(12),0,2));
+/// assert_eq!(5, arithmetic_idx(2,0,2));
+/// assert_eq!(12, arithmetic_idx(3,0,2));
 /// ```
 #[inline(always)]
 pub fn arithmetic_idx(level: ArithmeticLevel, offset: usize, skip: usize) -> usize {
-	let (level, effective_level) = match level {
-		Raw(level) => (level, (skip+1)*level),
-		Virt(virt) => (virt/(skip+1), virt)
-	};
+	if level == 0 {
+		return 0; // 0 - 1 below violates usize
+	}
+
+	let effective_level = (skip+1)*level;
 	debug_assert!(effective_level % (skip+1) == 0);
 
-	if level == 0 {
-		return 0;
-	}
 	1 + ((level-1)*(2+effective_level))/2 + offset
 }
 
@@ -110,7 +89,7 @@ impl<'a, V:'a+Default> ArithmeticVec<'a, V> {
 	/// assert!(av[(3,3)] == 0);
 	/// ```
 	pub fn with_capacity(cap: usize) -> Self {
-		let capacity = arithmetic_idx(Raw(cap),0,0);
+		let capacity = arithmetic_idx(cap,0,0);
 		Self {
 			vec: Vec::with_capacity(capacity),
 			levels: 0,
@@ -142,7 +121,7 @@ impl<'a, V:'a+Default> ArithmeticVec<'a, V> {
 	pub fn reserve(&mut self, levels: usize) {
 		if self.levels <= levels {
 			let cur_items = self.vec.len();
-			let req_items = arithmetic_idx(Raw(levels+1),0,0);
+			let req_items = arithmetic_idx(levels+1,0,0);
 			let len = req_items - cur_items;
 			self.vec.resize_with(len, V::default);
 			debug_assert!(self.vec.len() == cur_items + len);
@@ -180,7 +159,7 @@ impl<'a, V:'a+Default> Index<usize> for ArithmeticVec<'a, V> {
 	/// ```
 	#[inline]
 	fn index(&self, level: usize) -> &[V] {
-		let range = arithmetic_idx(Raw(level),0,0) .. arithmetic_idx(Raw(level+1),0,0);
+		let range = arithmetic_idx(level,0,0) .. arithmetic_idx(level+1,0,0);
 		&self.vec[range]
 	}
 }
@@ -197,7 +176,7 @@ impl<'a, V:'a+Default> IndexMut<usize> for ArithmeticVec<'a, V> {
 	#[inline]
 	fn index_mut(&mut self, level: usize) -> &mut [V] {
 		self.reserve(level);
-		let range = arithmetic_idx(Raw(level),0,0) .. arithmetic_idx(Raw(level+1),0,0);
+		let range = arithmetic_idx(level,0,0) .. arithmetic_idx(level+1,0,0);
 		&mut self.vec[range]
 	}
 }
@@ -206,7 +185,7 @@ impl<'a, V:'a+Default> Index<(usize,usize)> for ArithmeticVec<'a, V> {
 	type Output = V;
 	#[inline]
 	fn index(&self, (level,idx): (usize,usize)) -> &V {
-		&self.vec[arithmetic_idx(Raw(level),idx,0)]
+		&self.vec[arithmetic_idx(level,idx,0)]
 	}
 }
 
@@ -214,7 +193,7 @@ impl<'a, V:'a+Default> IndexMut<(usize,usize)> for ArithmeticVec<'a, V> {
 	#[inline]
 	fn index_mut(&mut self, (level,idx): (usize,usize)) -> &mut V {
 		self.reserve(level);
-		&mut self.vec[arithmetic_idx(Raw(level),idx,0)]
+		&mut self.vec[arithmetic_idx(level,idx,0)]
 	}
 }
 
@@ -320,10 +299,10 @@ impl<'a, V:'a+Default> Iterator for AVecIter<'a, V> {
 			return None
 		}
 		self.cur += 1; // pre-increment because each level has level+1 elements
-		let slice = NonNull::slice_from_raw_parts(self.cur_ptr, self.cur);
 		unsafe {
+            let slice = slice::from_raw_parts(self.cur_ptr.as_ptr(), self.cur);
 			self.cur_ptr = NonNull::new_unchecked(self.cur_ptr.as_ptr().add(self.cur));
-			Some(&*slice.as_ptr())
+			Some(&slice)
 		}
 	}
 	
@@ -374,10 +353,10 @@ impl<'a, V:'a+Default> Iterator for AVecMutIter<'a, V> {
 			return None
 		}
 		self.cur += 1; // pre-increment because each level has level+1 elements
-		let slice = NonNull::slice_from_raw_parts(self.cur_ptr, self.cur);
 		unsafe {
+            let slice = slice::from_raw_parts_mut(self.cur_ptr.as_ptr(), self.cur);
 			self.cur_ptr = NonNull::new_unchecked(self.cur_ptr.as_ptr().add(self.cur));
-			Some(&mut *slice.as_ptr())
+			Some(slice)
 		}
 	}
 	
