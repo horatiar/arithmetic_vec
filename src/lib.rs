@@ -1,29 +1,15 @@
 use core::{
-	cmp::{
-		Ordering, Ordering::*,
-	},
-	fmt::{
-		Debug,
-	},
-	hash::{
-		Hash, Hasher
-	},
-	marker::{
-		PhantomData,
-	},
-	ops::{
-		Index, IndexMut,
-	},
-	ptr::{
-		NonNull,
-	},
+	cmp::{Ordering, Ordering::*},
+	fmt::{Debug},
+	hash::{Hash, Hasher},
+	marker::{PhantomData},
+	ops::{Index, IndexMut},
+	ptr::{NonNull},
     slice,
 };
 
 #[cfg(feature="serde")]
 use serde::{Deserialize, Serialize};
-
-type ArithmeticLevel = usize;
 
 /// Calculate the index of the starting level of a
 /// complete arithmetic tree; i.e., a complete tree
@@ -59,7 +45,7 @@ type ArithmeticLevel = usize;
 /// assert_eq!(12, arithmetic_idx(3,0,2));
 /// ```
 #[inline(always)]
-pub fn arithmetic_idx(level: ArithmeticLevel, offset: usize, skip: usize) -> usize {
+pub fn arithmetic_idx(level: usize, offset: usize, skip: usize) -> usize {
 	if level == 0 {
 		return 0; // 0 - 1 below violates usize
 	}
@@ -120,12 +106,7 @@ impl<'a, V:'a+Default> ArithmeticVec<'a, V> {
 	#[allow(clippy::same_item_push)]
 	pub fn reserve(&mut self, levels: usize) {
 		if self.levels <= levels {
-			let cur_items = self.vec.len();
-			let req_items = arithmetic_idx(levels+1,0,0);
-			let len = req_items - cur_items;
-			self.vec.resize_with(len, V::default);
-			debug_assert!(self.vec.len() == cur_items + len);
-			debug_assert!(self.vec.len() == req_items);
+			self.vec.resize_with(arithmetic_idx(levels+1,0,0), V::default);
 			self.levels = levels+1;
 		}
 	}
@@ -155,7 +136,12 @@ impl<'a, V:'a+Default> Index<usize> for ArithmeticVec<'a, V> {
 	/// let mut av = ArithmeticVec::default();
 	/// av[(2,1)] = 42;
 	/// assert!(av[(2,1)] == 42);
+    /// assert!(av[0] == [0]);
+    /// assert!(av[1] == [0,0]);
 	/// assert!(av[2] == [0,42,0]);
+    /// av[(999,999)] = 42;
+    /// assert!(av[999].len() == 1000);
+    /// assert!(av[999][999] == 42);
 	/// ```
 	#[inline]
 	fn index(&self, level: usize) -> &[V] {
