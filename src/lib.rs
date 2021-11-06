@@ -20,40 +20,43 @@ use serde::{Deserialize, Serialize};
 /// connected 2-lattice to be stored within an
 /// array without the need for parent-child
 /// pointers or fragmented memory.
-/// 
-/// The parameter `skip` allows only selected
-/// levels to be physically stored. The
-/// intended use here is to construct a binomial
-/// probability tree but only store levels at
-/// specific intervals.
-/// 
 /// ```
 /// # use arithmetic_vec::*;
-/// assert_eq!(0, arithmetic_idx(0,0,0));
-/// assert_eq!(1, arithmetic_idx(1,0,0));
-/// assert_eq!(3, arithmetic_idx(2,0,0));
-/// assert_eq!(6, arithmetic_idx(3,0,0));
-/// assert_eq!(15, arithmetic_idx(5,0,0));
-/// 
-/// assert_eq!(0, arithmetic_idx(0,0,1));
-/// assert_eq!(1, arithmetic_idx(1,0,1));
-/// assert_eq!(4, arithmetic_idx(2,0,1));
-/// assert_eq!(9, arithmetic_idx(3,0,1));
-/// assert_eq!(25, arithmetic_idx(5,0,1));
-/// 
-/// assert_eq!(5, arithmetic_idx(2,0,2));
-/// assert_eq!(12, arithmetic_idx(3,0,2));
+/// assert_eq!(0, arithmetic_idx(0,0));
+/// assert_eq!(1, arithmetic_idx(1,0));
+/// assert_eq!(3, arithmetic_idx(2,0));
+/// assert_eq!(6, arithmetic_idx(3,0));
+/// assert_eq!(15, arithmetic_idx(5,0));
 /// ```
 #[inline(always)]
-pub fn arithmetic_idx(level: usize, offset: usize, skip: usize) -> usize {
+pub fn arithmetic_idx(level: usize, offset: usize) -> usize {
 	if level == 0 {
 		return 0; // 0 - 1 below violates usize
 	}
 
-	let effective_level = (skip+1)*level;
-	debug_assert!(effective_level % (skip+1) == 0);
+	1 + ((level-1)*(2+level))/2 + offset
+}
 
-	1 + ((level-1)*(2+effective_level))/2 + offset
+pub fn level_of(offset: usize, total_levels: usize) -> Result<(usize,usize),String> {
+    let mut min = 0;
+    let mut max = total_levels;
+    while min <= max {
+        let mid = (min+max)/2;
+        let mid_idx = arithmetic_idx(mid, 0);
+
+        if max - min <= 1 {
+            debug_assert!(min <= max);
+            let min_idx = arithmetic_idx(min, 0);
+            return Ok((min,offset-min_idx))
+        } else if offset < mid_idx {
+            max = mid;
+        } else if offset > mid_idx {
+            min = mid;
+        } else /* offset == mid_idx */ {
+            min = mid
+        }
+    }
+    Err("total_levels not big enough".to_string())
 }
 
 #[derive(Clone)] #[cfg_attr(feature="serde", derive(Serialize,Deserialize))]
@@ -75,7 +78,7 @@ impl<'a, V:'a+Default> ArithmeticVec<'a, V> {
 	/// assert!(av[(3,3)] == 0);
 	/// ```
 	pub fn with_capacity(cap: usize) -> Self {
-		let capacity = arithmetic_idx(cap,0,0);
+		let capacity = arithmetic_idx(cap,0);
 		Self {
 			vec: Vec::with_capacity(capacity),
 			levels: 0,
@@ -83,30 +86,80 @@ impl<'a, V:'a+Default> ArithmeticVec<'a, V> {
 		}
 	}
 
-	#[inline]
+	#[inline(always)]
+	pub fn enumerate_mut(&mut self) -> impl Iterator<Item=(usize, &mut[V])> {
+		AVecMutIter::new(self).enumerate()
+	}
+	
+	#[inline(always)]
+	pub fn enumerate(&self) -> impl Iterator<Item=(usize, &'a [V])>  {
+		AVecIter::new(self).enumerate()
+	}
+
+	#[inline(always)]
+    pub fn enumerate_items_mut(&'a mut self) -> impl Iterator<Item=(usize, usize, &mut V)> {
+        let level_count = self.level_count();
+        self.vec.iter_mut().enumerate().map(move |(v_idx,item)|
+            match level_of(v_idx, level_count) {
+                Ok((level, offset)) => (level, offset, item),
+                Err(_) => panic!("logic error")
+            }
+        )
+    }
+	
+	/// ```
+	/// # use arithmetic_vec::*;
+	/// let mut av = ArithmeticVec::default();
+	/// av[(2,1)] = 42i32;
+	/// assert_eq!(av.enumerate_items().map(|(level,offset,ref_item)|(level,offset,*ref_item)).collect::<Vec<(usize,usize,i32)>>(),
+    ///     vec![(0,0,0),(1,0,0),(1,1,0),(2,0,0),(2,1,42),(2,2,0)]);
+	/// ```
+	#[inline(always)]
+    pub fn enumerate_items(&'a self) -> impl Iterator<Item=(usize, usize, &V)> {
+        let level_count = self.level_count();
+        self.vec.iter().enumerate().map(move |(v_idx,item)|
+            match level_of(v_idx, level_count) {
+                Ok((level, offset)) => (level, offset, item),
+                Err(_) => panic!("logic error")
+            }
+        )
+    }
+	
+	#[inline(always)]
 	pub fn iter_mut(&mut self) -> impl Iterator<Item=&mut[V]> {
 		AVecMutIter::new(self)
 	}
 	
-	#[inline]
+	#[inline(always)]
 	pub fn iter(&self) -> impl Iterator<Item=&'a [V]>  {
 		AVecIter::new(self)
 	}
+
+	#[inline(always)]
+    pub fn iter_items_mut(&mut self) -> impl Iterator<Item=&mut V> {
+        self.vec.iter_mut()
+    }
 	
-	#[inline]
+	#[inline(always)]
+    pub fn iter_items(&self) -> impl Iterator<Item=& V> {
+        self.vec.iter()
+    }
+	
+	#[inline(always)]
 	pub fn levels(&self) -> impl Iterator<Item=&[V]> {
 		self.iter()
 	}
 	
+	#[inline(always)]
 	pub fn level_count(&self) -> usize {
 		self.levels
 	}
-	
+
 	#[inline(always)]
 	#[allow(clippy::same_item_push)]
 	pub fn reserve(&mut self, levels: usize) {
 		if self.levels <= levels {
-			self.vec.resize_with(arithmetic_idx(levels+1,0,0), V::default);
+			self.vec.resize_with(arithmetic_idx(levels+1,0), V::default);
 			self.levels = levels+1;
 		}
 	}
@@ -145,7 +198,7 @@ impl<'a, V:'a+Default> Index<usize> for ArithmeticVec<'a, V> {
 	/// ```
 	#[inline]
 	fn index(&self, level: usize) -> &[V] {
-		let range = arithmetic_idx(level,0,0) .. arithmetic_idx(level+1,0,0);
+		let range = arithmetic_idx(level,0) .. arithmetic_idx(level+1,0);
 		&self.vec[range]
 	}
 }
@@ -162,7 +215,7 @@ impl<'a, V:'a+Default> IndexMut<usize> for ArithmeticVec<'a, V> {
 	#[inline]
 	fn index_mut(&mut self, level: usize) -> &mut [V] {
 		self.reserve(level);
-		let range = arithmetic_idx(level,0,0) .. arithmetic_idx(level+1,0,0);
+		let range = arithmetic_idx(level,0) .. arithmetic_idx(level+1,0);
 		&mut self.vec[range]
 	}
 }
@@ -171,7 +224,7 @@ impl<'a, V:'a+Default> Index<(usize,usize)> for ArithmeticVec<'a, V> {
 	type Output = V;
 	#[inline]
 	fn index(&self, (level,idx): (usize,usize)) -> &V {
-		&self.vec[arithmetic_idx(level,idx,0)]
+		&self.vec[arithmetic_idx(level,idx)]
 	}
 }
 
@@ -179,7 +232,7 @@ impl<'a, V:'a+Default> IndexMut<(usize,usize)> for ArithmeticVec<'a, V> {
 	#[inline]
 	fn index_mut(&mut self, (level,idx): (usize,usize)) -> &mut V {
 		self.reserve(level);
-		&mut self.vec[arithmetic_idx(level,idx,0)]
+		&mut self.vec[arithmetic_idx(level,idx)]
 	}
 }
 
